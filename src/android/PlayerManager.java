@@ -8,8 +8,6 @@ import android.content.IntentFilter;
 import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.widget.Toast;
-
 
 public class PlayerManager extends Activity {
 
@@ -55,17 +53,6 @@ public class PlayerManager extends Activity {
         unregisterReceiver(headsetPlugReceiver);  //注销监听
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        this.finish();
-    }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
-        setVisible(true);
-    }
     /**
      * 切换到听筒模式
      */
@@ -116,10 +103,8 @@ public class PlayerManager extends Activity {
                     }else if(PlayMode.equals( "receiver" )){
                         changeToEarpieceMode();
                     }
-                    Toast.makeText(context, "耳机已拔出", Toast.LENGTH_LONG).show();
                 } else if (intent.getIntExtra("state", 0) == 1) {
                     changeToHeadsetMode();
-                    Toast.makeText(context, "耳机已连接", Toast.LENGTH_LONG).show();
                 }
             }
         }
