@@ -1,3 +1,21 @@
+/*
+       Licensed to the Apache Software Foundation (ASF) under one
+       or more contributor license agreements.  See the NOTICE file
+       distributed with this work for additional information
+       regarding copyright ownership.  The ASF licenses this file
+       to you under the Apache License, Version 2.0 (the
+       "License"); you may not use this file except in compliance
+       with the License.  You may obtain a copy of the License at
+
+         http://www.apache.org/licenses/LICENSE-2.0
+
+       Unless required by applicable law or agreed to in writing,
+       software distributed under the License is distributed on an
+       "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+       KIND, either express or implied.  See the License for the
+       specific language governing permissions and limitations
+       under the License.
+*/
 package org.apache.cordova.media;
 
 import org.apache.cordova.CallbackContext;
@@ -7,14 +25,12 @@ import org.apache.cordova.PermissionHelper;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.AudioManager;
 import android.media.AudioManager.OnAudioFocusChangeListener;
 import android.net.Uri;
-import android.os.Build;
-import android.util.Log;
 
-import java.security.Permission;
 import java.util.ArrayList;
 
 import org.apache.cordova.LOG;
@@ -66,18 +82,15 @@ public class AudioHandler extends CordovaPlugin {
         this.pausedForFocus = new ArrayList<AudioPlayer>();
     }
 
-
     protected void getWritePermission(int requestCode)
     {
         PermissionHelper.requestPermission(this, requestCode, permissions[WRITE_EXTERNAL_STORAGE]);
     }
 
-
     protected void getMicPermission(int requestCode)
     {
         PermissionHelper.requestPermission(this, requestCode, permissions[RECORD_AUDIO]);
     }
-
 
     /**
      * Executes the request and returns PluginResult.
@@ -121,11 +134,9 @@ public class AudioHandler extends CordovaPlugin {
                 fileUriStr = target;
             }
             JSONObject options = args.getJSONObject( 2 );
-            boolean audioJud = options.has( "PlayTheMode" );
+            boolean audioJud = options.has( "playMode" );
             if(audioJud){
-                String PlayTheMode = options.getString( "PlayTheMode" );
-            }else {
-                PlayTheMode = "";
+                PlayTheMode = options.getString( "playMode" );
             }
             this.startPlayingAudio(args.getString(0), FileHelper.stripFileProtocol(fileUriStr),PlayTheMode);
         }
@@ -317,24 +328,15 @@ public class AudioHandler extends CordovaPlugin {
             iterator.remove();
             value.destroy();
         }
-        AudioManager audioManager = (AudioManager)this.cordova.getContext().getSystemService(Context.AUDIO_SERVICE);
-        if(PlayTheMode == "receiver"){   //切换为听筒模式
-            audioManager.setSpeakerphoneOn(false);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB){
-                audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-            } else {
-                audioManager.setMode(AudioManager.MODE_IN_CALL);
-            }
-        }else if(PlayTheMode == "speaker"){  //听筒模式
-            audioManager.setSpeakerphoneOn(true);
-        }else if(PlayTheMode == "headsetMode"){
-            audioManager.setSpeakerphoneOn(false);
-        }
+        Intent i = new Intent(this.cordova.getActivity(), PlayerManager.class);
+        i.putExtra( "PlayMode",PlayTheMode );
+        this.cordova.getActivity().startActivity(i);
+
         AudioPlayer audio = getOrCreatePlayer(id, file);
         audio.startPlaying(file);
         getAudioFocus();
-        audioManager.setMode(AudioManager.MODE_NORMAL);
     }
+
 
     /**
      * Seek to a location.
@@ -580,4 +582,5 @@ public class AudioHandler extends CordovaPlugin {
         }
         return 0;
     }
+
 }
