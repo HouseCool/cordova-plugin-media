@@ -24,12 +24,17 @@ import org.apache.cordova.CordovaResourceApi;
 import org.apache.cordova.PermissionHelper;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.media.AudioManager;
 import android.media.AudioManager.OnAudioFocusChangeListener;
 import android.net.Uri;
+import android.os.Build;
+import android.util.Log;
+import android.widget.Toast;
 
 import java.util.ArrayList;
 
@@ -55,7 +60,7 @@ import java.util.Set;
  * 		android_asset: 		file name must start with /android_asset/sound.mp3
  * 		sdcard:				file name is just sound.mp3
  */
-public class AudioHandler extends CordovaPlugin {
+public class AudioHandler<pluginInitialize> extends CordovaPlugin {
 
     public static String TAG = "AudioHandler";
     HashMap<String, AudioPlayer> players;  // Audio player object
@@ -67,11 +72,16 @@ public class AudioHandler extends CordovaPlugin {
     public static String [] permissions = { Manifest.permission.RECORD_AUDIO, Manifest.permission.WRITE_EXTERNAL_STORAGE};
     public static int RECORD_AUDIO = 0;
     public static int WRITE_EXTERNAL_STORAGE = 1;
-    private String  PlayTheMode;    //音频输出方式
     public static final int PERMISSION_DENIED_ERROR = 20;
 
     private String recordId;
     private String fileUriStr;
+
+    HeadsetPlugReceiver headsetPlugReceiver;
+
+    private AudioManager audioManager;
+
+    private static String PlayTheMode = "speaker";   //当前播放模式
 
     /**
      * Constructor.
@@ -90,6 +100,17 @@ public class AudioHandler extends CordovaPlugin {
     protected void getMicPermission(int requestCode)
     {
         PermissionHelper.requestPermission(this, requestCode, permissions[RECORD_AUDIO]);
+    }
+
+    @Override
+    public void pluginInitialize() {
+        audioManager = (AudioManager) this.cordova.getContext().getSystemService(Context.AUDIO_SERVICE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB){
+            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+        } else {
+            audioManager.setMode(AudioManager.MODE_IN_CALL);
+        }
+        audioManager.setSpeakerphoneOn(true);  //默认为扬声器播放
     }
 
     /**
@@ -138,7 +159,7 @@ public class AudioHandler extends CordovaPlugin {
             if(audioJud){
                 PlayTheMode = options.getString( "playMode" );
             }
-            this.startPlayingAudio(args.getString(0), FileHelper.stripFileProtocol(fileUriStr),PlayTheMode);
+            this.startPlayingAudio(args.getString(0), FileHelper.stripFileProtocol(fileUriStr));
         }
         else if (action.equals("seekToAudio")) {
             this.seekToAudio(args.getString(0), args.getInt(1));
@@ -185,9 +206,7 @@ public class AudioHandler extends CordovaPlugin {
         else { // Unrecognized action.
             return false;
         }
-
         callbackContext.sendPluginResult(new PluginResult(status, result));
-
         return true;
     }
 
@@ -202,6 +221,7 @@ public class AudioHandler extends CordovaPlugin {
             audio.destroy();
         }
         this.players.clear();
+        this.cordova.getContext().unregisterReceiver(headsetPlugReceiver);  //注销监听
     }
 
     /**
@@ -318,7 +338,7 @@ public class AudioHandler extends CordovaPlugin {
      * @param id				The id of the audio player
      * @param file				The name of the audio file.
      */
-    public void startPlayingAudio(String id, String file,String PlayTheMode) {
+    public void startPlayingAudio(String id, String file) {
         Set<Map.Entry<String, AudioPlayer>> set=players.entrySet();
         Iterator<Map.Entry<String, AudioPlayer>> iterator=set.iterator();
         while(iterator.hasNext()){
@@ -328,15 +348,51 @@ public class AudioHandler extends CordovaPlugin {
             iterator.remove();
             value.destroy();
         }
-        Intent i = new Intent(this.cordova.getActivity(), PlayerManager.class);
-        i.putExtra( "PlayMode",PlayTheMode );
-        this.cordova.getActivity().startActivity(i);
-
+        registerHeadsetPlugReceiver();  // 注册监听
+        if(PlayTheMode.equals( "speaker" )){
+            changeToSpeakerMode();
+        }else if(PlayTheMode.equals( "receiver" )){
+            changeToEarpieceMode();
+        }
         AudioPlayer audio = getOrCreatePlayer(id, file);
         audio.startPlaying(file);
         getAudioFocus();
     }
 
+    /**
+     * 切换到听筒模式
+     */
+    public void changeToEarpieceMode(){
+        audioManager.setSpeakerphoneOn(false);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB){
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC,
+                    audioManager.getStreamMaxVolume(AudioManager.MODE_IN_COMMUNICATION), AudioManager.FX_KEY_CLICK);
+        } else {
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC,
+                    audioManager.getStreamMaxVolume(AudioManager.MODE_IN_CALL), AudioManager.FX_KEY_CLICK);
+        }
+    }
+
+    /**
+     * 切换到耳机模式
+     */
+    public void changeToHeadsetMode(){
+        audioManager.setSpeakerphoneOn(false);
+    }
+
+    /**
+     * 切换到外放模式
+     */
+    public void changeToSpeakerMode(){
+        audioManager.setSpeakerphoneOn(true);
+    }
+
+    private void registerHeadsetPlugReceiver() {
+        headsetPlugReceiver = new HeadsetPlugReceiver();
+        IntentFilter filter = new IntentFilter();
+        filter.addAction("android.intent.action.HEADSET_PLUG");
+        this.cordova.getContext().registerReceiver(headsetPlugReceiver, filter);
+    }
 
     /**
      * Seek to a location.
@@ -567,7 +623,6 @@ public class AudioHandler extends CordovaPlugin {
         {
             getMicPermission(RECORD_AUDIO);
         }
-
     }
 
     /**
@@ -581,6 +636,27 @@ public class AudioHandler extends CordovaPlugin {
             return (audio.getCurrentAmplitude());
         }
         return 0;
+    }
+
+    class HeadsetPlugReceiver extends BroadcastReceiver {
+
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            // TODO Auto-generated method stub
+            if (intent.hasExtra("state")) {
+                if (intent.getIntExtra("state", 0) == 0) {
+                    if(PlayTheMode.equals( "speaker" )){
+                        changeToSpeakerMode();
+                    }else if(PlayTheMode.equals( "receiver" )){
+                        changeToEarpieceMode();
+                    }
+                    Toast.makeText(context,"耳机未插入", Toast.LENGTH_SHORT).show();
+                } else if (intent.getIntExtra("state", 0) == 1) {
+                    changeToHeadsetMode();
+                    Toast.makeText(context,"耳机已插入", Toast.LENGTH_SHORT).show();
+                }
+            }
+        }
     }
 
 }
